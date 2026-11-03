@@ -1,0 +1,20 @@
+# Data and large artifacts never enter git
+data/
+*.pdf
+!Urdu_NER_Dataset_Report.pdf
+*.sqlite
+*.sqlite3
+label_studio/
+*.bio
+*.jsonl.gz
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Scraping hygiene
+*.log
+.scrapy/
