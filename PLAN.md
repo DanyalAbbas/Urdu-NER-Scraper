@@ -98,13 +98,14 @@ Fail → status `rejected_bad_text_layer`, recorded for provenance, excluded fro
 
 ## 4. LLM Annotation Design (free APIs only — decision #1)
 
-- **Three diverse free-tier voters** (diversity of models beats 3 runs of one model):
-  1. **Groq** — Llama 3.3 70B (free tier, very fast)
-  2. **Google AI Studio** — Gemini 2.0 Flash (free tier)
-  3. **Mistral La Plateforme** — Mistral Small 3.x (free tier)
-- Backups: OpenRouter `:free` models; or local **Ollama** (e.g., Qwen2.5) if a GPU is available — zero cost, no rate limits.
-- **Batching:** 10–20 sentences per request (JSON array in → JSON array out). ~15K sentences × 3 voters ≈ 2,300–4,500 requests total — comfortably within free-tier daily limits, with retry/backoff queues.
+- **Three diverse free voters (all keys verified working 2026-11-04):**
+  1. **Groq** — `openai/gpt-oss-120b` (llama-3.3-70b is no longer offered on Groq's free tier; gpt-oss models emit reasoning in a separate field → parse `message.content`, set `reasoning_effort: low`, generous `max_completion_tokens`)
+  2. **Google AI Studio** — Gemini flash family with a downshift chain: `gemini-3.8-flash → 3.7-flash → 3.5-flash → 3.1-flash-lite` (newest models intermittently return 503 under high demand; flash-lite is the reliable floor)
+  3. **OpenRouter** — free tier, rotate best available `:free` models (current: `nvidia/nemotron-3-ultra-550b:free`, `google/gemma-4-31b:free`; lineup rotates monthly)
+- Optional 4th voter if a free Mistral key is added later (console.mistral.ai).
+- **Batching:** 10–20 sentences per request (JSON array in → JSON array out). ~15K sentences × 3 voters ≈ 2,300–4,500 requests total — comfortably within free-tier daily limits, with retry/downshift/backoff queues.
 - **Prompt:** few-shot (10–15 annotated examples covering PER/LOC/ORG/JOBTITLE/DATE and tricky negatives like استاد as common noun vs. title), schema-constrained JSON output: `[{sentence_id, entities: [{text, start, end, tag}]}]`.
+- **Title-vs-name guideline (settle in pilot):** first tests show voters disagree — Gemini tags "استاد احمد رضا" as one PER span, Groq drops the title. Pilot will fix one rule (e.g., title → `JOBTITLE`, name → `PER`) and encode it in the few-shot examples.
 - **Self-consistency:** each sentence annotated by all 3 voters independently; entity kept if ≥2/3 agree on span+tag. Record `agreement = 3/3 | 2/3 | 0` per sentence — drives the review sampling (§6).
 - **Convert** spans → token-level BIO using the same tokenizer as the corpus files; any span that doesn't align to token boundaries is flagged for review rather than silently clipped.
 
@@ -183,7 +184,7 @@ Urdu-NER-Scraper/
 | Risk | Mitigation |
 |---|---|
 | Broken Urdu ligature order from PDF text layers | S3 heuristics (Presentation-Forms check + sanity bigrams); reject & skip; OCR revisited only if yield too low |
-| Textbook yield (copyable-text only) | **Confirmed zero for STBB** (26/26 books image-only). PCTB/NBF mirrors to be probed; OCR is the fallback (§9 open decision). Web sources unaffected. |
+| Textbook yield (copyable-text only) | **Superseded:** free-tier Gemini OCR adopted (validated on a real STBB page, §9). Residual risk: OCR noise on poems/tables → same S3–S5 validation + human review sampling applies to OCR output |
 | Free-tier rate limits throttle annotation | Batch 10–20 sentences/request; retry/backoff queues across 3 providers; expected ~1–2K sentences/day |
 | PCTB under maintenance / NBF blocks bots | Aggregator mirrors (taleem360, ustad360) with URL logging; STBB verified & sufficient to start |
 | Copyright on board textbooks | Boards publish PDFs free for education; research use with attribution; **we store annotated sentences + provenance, never redistribute full books**; before publishing, email STBB/PCTB/NBF for written permission |
@@ -205,12 +206,7 @@ Urdu-NER-Scraper/
 | 4 | Grades | **All classes Kachi–XII**; sampling weighted toward Class 4–12 (grades = جماعت/classes, i.e., which class's textbook a sentence comes from) |
 | 5 | OCR | **Skipped for now** — copyable-text PDFs only; scanned books detected, recorded, excluded |
 
-**⚠️ Open decision (Nov 2026 survey — conclusive):** all four textbook pipelines are image-only (STBB 26/26 books; PECTAA CorelDRAW; FBISE Ghostscript; AIOU scanned). Under decision #5 this yields **zero textbook data**. Options:
-- **(a) Web-first (recommended now):** education news + university pages + Urdu Wikipedia/Wikibooks (text-native, CC-licensed). Pilot proceeds as scheduled.
-- **(b) OCR the textbooks — now free-tier-feasible:** Gemini 2.0 Flash free tier allows ~1,500 requests/day → a 156-page book ≈ 156 page-images ≈ **~9–10 books/day, free**. Vision LLMs read Nastaliq far better than Tesseract (whose `urd` model is weak on Nastaliq). ~250+ books/month at zero cost. Requires user approval since decision #5 deferred OCR.
-- **(c) ~~PCTB/NBF mirror text layers~~ — tested, ruled out:** mirrors work for downloading but their PDFs are the same rasterized files.
-
-Recommendation: **(a) now + (b) as a parallel free-tier track** (web pilot this week; OCR STBB Urdu Readers with free Gemini for textbook enrichment next week). User decides.
+**✅ Resolved (2026-11-04): free-tier Gemini OCR adopted.** User supplied a working AI Studio key. OCR quality **validated on a real STBB Urdu Reader IV page**: near-perfect Nastaliq transcription incl. diacritics and proper nouns, via `gemini-3.1-flash-lite`. Free tier ≈ 1,500 requests/day ≈ **7–10 books/day**. Pipeline: PDF → page images (pymupdf, 150 dpi) → Gemini transcribe → same S3–S5 validation/cleaning as native text. The "copyable-text only" constraint is superseded — textbooks are back in scope at $0.
 
 ---
 
