@@ -34,7 +34,7 @@ scripts/survey_stbb.py CLI: probe STBB books for copyable text, writes JSON repo
 ## Status
 
 - [x] Plan v1.1 (decisions locked)
-- [x] STBB text-layer survey — **all 26 books probed (every class, 2020–2026) are IMAGE_ONLY: zero fonts, zero extractable text.** Under the copyable-only rule, STBB yields 0 textbooks; see PLAN.md §9 open decision (OCR vs web-first).
+- [x] STBB text-layer survey — **conclusive: all 4 Pakistani textbook pipelines are image-only** (STBB 26/26 books; PECTAA/Punjab CorelDRAW; FBISE/NBF Ghostscript; AIOU scanned). Copyable-only ⇒ 0 textbook data. Open decision: web-first + free-tier Gemini OCR (PLAN.md §9).
 - [x] Source registry + STBB scraper/validator code
 - [ ] PCTB/NBF (via taleem360/ustad360 mirrors) — pending; official PCTB portal was under maintenance
 - [ ] Cleaning + sentence pool

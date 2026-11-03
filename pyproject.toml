@@ -7,6 +7,7 @@ dependencies = [
     "google-generativeai>=0.8.6",
     "groq>=1.7.0",
     "mistralai>=3.7.0",
+    "py3langid>=0.4",
     "pymupdf>=2.1",
     "requests>=2.34.2",
     "scrapy>=2.19.0",

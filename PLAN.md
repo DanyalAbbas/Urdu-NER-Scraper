@@ -26,15 +26,18 @@
 | Board | Portal | Status | How to fetch |
 |---|---|---|---|
 | Sindh Textbook Board (STBB), Jamshoro | `portal.stbb.edu.pk/ebooks` | ✅ live, but **books are image-only** | Class listing: `class.php?id=…&medium=Urdu` (ids: 17=Kachi, 1=I, 3=II, 4=III, 5=IV, 6=V, 7=VI, 8=VII, 9=VIII, 10=IX, 11=X, 14=XI, 15=XII). Book pages: `book.php?id=…`. PDFs: `pdf_proxy.php?id=…&download=1`. ~10 MB/book at ~40 KB/s → polite concurrency 1–2, resumable range requests. **Survey (Nov 2026): 26 books probed across all classes & years 2020–2026 — every one has zero fonts / zero text layer (exported via PScript→Distiller as page images).** |
-| Punjab (PCTB/PECTAA) | `pctb.punjab.gov.pk/E-Books` | ⚠️ under maintenance at plan time | Fallback: `taleem360.com` Punjab section (or revisit official portal later). Log aggregator URLs in provenance |
-| Federal (FBISE) via National Book Foundation | `nbf.org.pk/chapters-of-text-books` | ⚠️ blocks automated access | Fallback: `taleem360.com` / `ustad360.com` Federal sections. Log URLs |
-| KPK Textbook Board | — | optional later | Same aggregator approach |
+| Punjab (PCTB/PECTAA) | `pctb.punjab.gov.pk/E-Books` | ⚠️ official site under maintenance; mirrors work | `taleem360.com` (286 Punjab books; download endpoint `/download/<slug>?f=<token>` → 302 to `cdn1.taleem360.com`, Cloudflare-fast) |
+| Federal (FBISE) via NBF | `nbf.org.pk` | ⚠️ blocks automated access | taleem360 Federal categories work |
+| AIOU (open university) | taleem360 AIOU categories | works | University-level Urdu-medium soft books |
+
+**🔍 Text-layer survey — CONCLUSIVE (Nov 2026): every Pakistani textbook pipeline is image-only.**
+Probed with real downloads: STBB 26 books (all classes, 2020–2026, PScript→Distiller), PECTAA Punjab newest Urdu (CorelDRAW 2025), FBISE/NBF Federal Urdu (Ghostscript/PDF24), AIOU Education (Acrobat Image Conversion). **4/4 pipelines: zero embedded Urdu fonts, zero extractable text** — the only text objects are site watermarks. Boards rasterize pages (anti-piracy). Under decision #5 (copyable-only) textbook yield = **0**; textbooks are reachable only via OCR (§9).
 
 **Which books:** Urdu (اردو) readers for every class + Urdu-medium Islamiat (Mazhabi Taleemat), Social Studies (Mashrati Uloom), Science, Civics/Education. These carry stories, essays, biographies, dialogues — the richest NER content. Skip Mathematics problem sets (number lists, no prose).
 
 **Grade coverage (decision #4):** all classes, Kachi → XII. Sampling weighted toward Class 4–12 (longer prose, more named entities); lower classes kept at lower weight — heavy in استاد/اسکول/سبق vocabulary, exactly the teacher signal we want.
 
-**Copyable-text only (decision #5):** only PDFs with a real text layer are used. Scanned/image-only books are detected, recorded, and skipped. No OCR in v1.
+**Copyable-text only (decision #5):** only PDFs with a real text layer would be used. The Nov 2026 survey proved **all Pakistani board pipelines are image-only** (see above), so textbook data now depends on the §9 open decision (web-first vs. free-tier OCR).
 
 ### 2b. Education web sources (scraped)
 
@@ -202,12 +205,12 @@ Urdu-NER-Scraper/
 | 4 | Grades | **All classes Kachi–XII**; sampling weighted toward Class 4–12 (grades = جماعت/classes, i.e., which class's textbook a sentence comes from) |
 | 5 | OCR | **Skipped for now** — copyable-text PDFs only; scanned books detected, recorded, excluded |
 
-**⚠️ Open decision (Nov 2026 survey result):** STBB books are 100% image-only (26/26 probed across all classes and years). Under decision #5 this yields **zero textbook data**. Options:
-- **(a) Web-first (no plan change):** start with education news + university pages (all have copyable text); revisit textbooks later.
-- **(b) Revisit OCR for STBB:** vision-LLM OCR (~$10–30 one-time, best quality) or free Tesseract `urd` (weaker); decision #5 explicitly deferred this.
-- **(c) Check PCTB/NBF mirrors first:** taleem360-hosted Punjab/Federal books may carry real text layers (their PDFs often come from different production pipelines) — cheap to test before deciding (a) vs (b).
+**⚠️ Open decision (Nov 2026 survey — conclusive):** all four textbook pipelines are image-only (STBB 26/26 books; PECTAA CorelDRAW; FBISE Ghostscript; AIOU scanned). Under decision #5 this yields **zero textbook data**. Options:
+- **(a) Web-first (recommended now):** education news + university pages + Urdu Wikipedia/Wikibooks (text-native, CC-licensed). Pilot proceeds as scheduled.
+- **(b) OCR the textbooks — now free-tier-feasible:** Gemini 2.0 Flash free tier allows ~1,500 requests/day → a 156-page book ≈ 156 page-images ≈ **~9–10 books/day, free**. Vision LLMs read Nastaliq far better than Tesseract (whose `urd` model is weak on Nastaliq). ~250+ books/month at zero cost. Requires user approval since decision #5 deferred OCR.
+- **(c) ~~PCTB/NBF mirror text layers~~ — tested, ruled out:** mirrors work for downloading but their PDFs are the same rasterized files.
 
-Recommendation: **(c) then (a)** — probe a handful of PCTB/NBF mirror PDFs for text layers this week; start web scraping regardless; decide on OCR only after seeing mirror results.
+Recommendation: **(a) now + (b) as a parallel free-tier track** (web pilot this week; OCR STBB Urdu Readers with free Gemini for textbook enrichment next week). User decides.
 
 ---
 
