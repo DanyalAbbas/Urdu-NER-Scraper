@@ -47,7 +47,15 @@ OPENROUTER_DEFAULT = "nvidia/nemotron-3-ultra-550b-a55b:free"
 
 def _post_json(url: str, body: dict, headers: dict, timeout: int = 120) -> tuple[int, dict]:
     req = urllib.request.Request(
-        url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json", **headers}
+        url,
+        data=json.dumps(body).encode(),
+        headers={
+            # Cloudflare (Groq) returns 403/1010 for urllib's default UA
+            "User-Agent": "urdu-ner-scraper/0.2 (+research; python-urllib)",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            **headers,
+        },
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -77,11 +85,14 @@ def gemini_generate(
     temperature: float = 0.0,
     max_output_tokens: int = 4000,
     max_attempts_per_model: int = 2,
+    thinking_budget: int | None = 0,
 ) -> tuple[str, str]:
     """Call Gemini with an inline-downshift chain. Returns (text, model_used).
 
     503/500 → try next model; 429 → sleep and retry same model.
     The last successful model is remembered and tried first next time.
+    thinking_budget=0 disables Gemini 3.x hidden reasoning: for transcription
+    and tagging it cut latency from ~120 s to ~5 s per batch.
     """
     global _preferred_model
     env = env or load_env()
@@ -92,6 +103,9 @@ def gemini_generate(
     if _preferred_model in chain:
         chain.remove(_preferred_model)
         chain.insert(0, _preferred_model)
+    gen_config: dict = {"temperature": temperature, "maxOutputTokens": max_output_tokens}
+    if thinking_budget is not None:
+        gen_config["thinkingConfig"] = {"thinkingBudget": thinking_budget}
     last_err = ""
     for model in chain:
         for attempt in range(max_attempts_per_model):
@@ -99,7 +113,7 @@ def gemini_generate(
                 f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
                 {
                     "contents": [{"parts": parts}],
-                    "generationConfig": {"temperature": temperature, "maxOutputTokens": max_output_tokens},
+                    "generationConfig": gen_config,
                 },
                 {"x-goog-api-key": key},
             )
@@ -107,9 +121,12 @@ def gemini_generate(
                 _preferred_model = model
                 return _gemini_text(d), model
             last_err = f"{model}: {status} {d.get('error', {}).get('message', '')[:80]}"
-            if status == 429:  # rate limit — wait, retry same model
-                time.sleep(20 * (attempt + 1))
-                continue
+            if status == 429:
+                # Free tier: "exceeded your current quota" is usually a daily
+                # cap, not a per-minute one. Sleeping 20-40s per model wasted
+                # ~3 minutes per batch before reaching the working model.
+                time.sleep(2)
+                break  # downshift now
             if status in (503, 500):  # high demand — brief pause then downshift
                 time.sleep(2 * (attempt + 1))
                 break
@@ -153,16 +170,26 @@ def groq_chat(messages: list[dict], *, model: str = GROQ_DEFAULT, env: dict[str,
 
 def openrouter_chat(messages: list[dict], *, model: str = OPENROUTER_DEFAULT,
                     env: dict[str, str] | None = None, temperature: float = 0.0,
-                    max_tokens: int = 2000) -> str:
+                    max_tokens: int = 2000, reasoning_effort: str | None = "low") -> str:
     env = env or load_env()
     key = env.get("OPENROUTER_API_KEY", "")
     if not key:
         raise RuntimeError("OPENROUTER_API_KEY missing from .env")
+    body: dict = {"model": model, "messages": messages,
+                  "temperature": temperature, "max_tokens": max_tokens}
+    if reasoning_effort:
+        # reasoning models otherwise burn the whole token budget before
+        # emitting the answer (nemotron: ~4K reasoning tokens -> truncated JSON)
+        body["reasoning"] = {"effort": reasoning_effort}
     status, d = _post_json(
         "https://openrouter.ai/api/v1/chat/completions",
-        {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens},
+        body,
         {"Authorization": f"Bearer {key}"},
     )
     if status != 200:
         raise RuntimeError(f"openrouter {status}: {d.get('error', {}).get('message', '')[:150]}")
-    return d["choices"][0]["message"].get("content", "") or ""
+    choice = d["choices"][0]
+    content = choice["message"].get("content", "") or ""
+    if not content.strip():
+        raise RuntimeError(f"openrouter empty content (finish={choice.get('finish_reason')})")
+    return content

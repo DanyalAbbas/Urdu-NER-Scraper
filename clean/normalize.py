@@ -31,6 +31,8 @@ _CHAR_MAP = {
 # harakat / diacritics (اعراب) to strip: 064B–065F, 0670, 06D6–06ED
 _DIACRITICS = re.compile(r"[\u064B-\u065F\u0670\u06D6-\u06ED]")
 _WS = re.compile(r"\s+")
+#: typographic/ASCII quotes often survive article extraction as stray tokens
+_QUOTES = "‘’“”\"'«»"
 
 
 def normalize_urdu(text: str) -> str:
@@ -65,12 +67,13 @@ def split_sentences(text: str) -> list[str]:
                     parts[i + 1][:1].isdigit():
                 buf += part
                 continue
-            s = (buf + part).strip()
+            s = (buf + part).strip().strip(_QUOTES).strip()
             if s:
                 sentences.append(s)
             buf = ""
-    if buf.strip():
-        sentences.append(buf.strip())
+    tail = buf.strip().strip(_QUOTES).strip()
+    if tail:
+        sentences.append(tail)
     return sentences
 
 

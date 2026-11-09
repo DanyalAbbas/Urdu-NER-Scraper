@@ -1,6 +1,6 @@
 # Urdu Education-Domain Corpus: Scraping, LLM Annotation & Approval Plan
 
-**Status:** v1.1 — decisions locked (§9). Ready to scaffold.
+**Status:** v1.3 — decisions locked (§9); tag schema finalized to the 10-label set (§5).
 **Goal:** Build an education-domain Urdu NER corpus (textbook + education-web text), annotated via free-tier LLMs with human approval, to complement ZUNERA (primary general-domain training set, 1.19M tokens). Final use: domain evaluation set + optional fine-tuning slice. This is the repurposed "Option A" pipeline from `Urdu_NER_Dataset_Report.pdf`, narrowed per the ZUNERA findings.
 
 ---
@@ -13,7 +13,7 @@
 | Sources | Textbook board PDFs (copyable-text only) + education web pages |
 | Pilot size | **500 sentences** — 100% human-reviewed before scaling |
 | Corpus size | **Maximize** within free-API throughput: pool 15–20K sentences, approve as much as possible; hard floor **5,000 approved sentences** |
-| Tag schema | 8 tags + `O` (see §5) — aligned with ZUNERA's 23-tag set via fixed mapping |
+| Tag schema | **10 tags + `O`** (see §5): PER, LOC, PLACE, JOBTITLE, ORG, TIME, DAY, EVENT, PHONE, CNIC — ZUNERA's 23 tags collapse into this set via a fixed mapping; PHONE/CNIC are synthetic by design |
 | Format | CoNLL/BIO2 (token TAB tag, blank line = sentence boundary), one file per split |
 | Golden rule | LLM output is never the gold standard. Every sentence in the final corpus is human-approved. |
 
@@ -100,33 +100,53 @@ Fail → status `rejected_bad_text_layer`, recorded for provenance, excluded fro
 
 - **Three diverse free voters (all keys verified working 2026-11-04):**
   1. **Groq** — `openai/gpt-oss-120b` (llama-3.3-70b is no longer offered on Groq's free tier; gpt-oss models emit reasoning in a separate field → parse `message.content`, set `reasoning_effort: low`, generous `max_completion_tokens`)
-  2. **Google AI Studio** — Gemini flash family with a downshift chain: `gemini-3.8-flash → 3.7-flash → 3.5-flash → 3.1-flash-lite` (newest models intermittently return 503 under high demand; flash-lite is the reliable floor)
-  3. **OpenRouter** — free tier, rotate best available `:free` models (current: `nvidia/nemotron-3-ultra-550b:free`, `google/gemma-4-31b:free`; lineup rotates monthly)
+  2. **Google AI Studio** — Gemini flash family with a downshift chain: `gemini-3.8-flash → 3.7-flash → 3.5-flash → 3.1-flash-lite`. Free-tier daily quotas are hit quickly, so 429 downshifts immediately; `thinkingBudget: 0` cuts batch latency from ~120 s to ~4 s. flash-lite is the reliable floor.
+  3. **Groq (second model)** — `openai/gpt-oss-20b`. Replaced OpenRouter as the default third voter (2026-11-04): OpenRouter's free lineup rotates and is currently 429/truncated, while gpt-oss-20b answers in ~1 s. OpenRouter stays available via `--voters` as an optional fourth voter.
 - Optional 4th voter if a free Mistral key is added later (console.mistral.ai).
 - **Batching:** 10–20 sentences per request (JSON array in → JSON array out). ~15K sentences × 3 voters ≈ 2,300–4,500 requests total — comfortably within free-tier daily limits, with retry/downshift/backoff queues.
-- **Prompt:** few-shot (10–15 annotated examples covering PER/LOC/ORG/JOBTITLE/DATE and tricky negatives like استاد as common noun vs. title), schema-constrained JSON output: `[{sentence_id, entities: [{text, start, end, tag}]}]`.
-- **Title-vs-name guideline (settle in pilot):** first tests show voters disagree — Gemini tags "استاد احمد رضا" as one PER span, Groq drops the title. Pilot will fix one rule (e.g., title → `JOBTITLE`, name → `PER`) and encode it in the few-shot examples.
+- **Prompt:** few-shot (10–15 annotated examples covering all 10 tags, plus tricky negatives — استاد as common noun vs. title, LOC vs. PLACE vs. ORG, DATE vs. EVENT), schema-constrained JSON output: `[{sentence_id, entities: [{text, start, end, tag}]}]`.
+- **Title-vs-name guideline (settle in pilot):** first tests show voters disagree — Gemini tags "استاد احمد رضا" as one PER span, Groq drops the title. Rule adopted: honorific/role word → `JOBTITLE`, personal name → `PER` (استاد احمد رضا → JOBTITLE + PER). Encoded in the few-shot examples; pilot verifies.
+- **Synthetic entities (PHONE, CNIC):** injected into pool sentences *before* annotation (§5b). Their offsets are known exactly, so they are **gold by construction** — voter spans overlapping them are dropped and the gold span is forced in. Voters still see them, so we also record whether each model detected them (a free robustness signal).
 - **Self-consistency:** each sentence annotated by all 3 voters independently; entity kept if ≥2/3 agree on span+tag. Record `agreement = 3/3 | 2/3 | 0` per sentence — drives the review sampling (§6).
 - **Convert** spans → token-level BIO using the same tokenizer as the corpus files; any span that doesn't align to token boundaries is flagged for review rather than silently clipped.
 
 ---
 
-## 5. Tag Schema (8 + O)
+## 5. Tag Schema (10 + O)
 
-Aligned with ZUNERA so the corpora can be merged/compared. Fixed mapping from ZUNERA's 23 tags:
+Final label set (user-specified, Nov 2026). ZUNERA's 23 tags collapse into it via a fixed mapping, so the two corpora can be merged/compared.
 
-| Our tag | Source tags (ZUNERA) | Examples |
-|---|---|---|
-| `PER` | PER | علامہ اقبال، سارہ |
-| `LOC` | LOC + GPE + PLACE | کراچی، پاکستان، اسکول کی عمارت |
-| `ORG` | ORG | بورڈ، جامعہ، HEC |
-| `JOBTITLE` | JOBTITLE | **استاد، پروفیسر، پرنسپل، لیکچرار** ← the teacher signal |
-| `DATE/TIME` | DATE + DAY + TIME | 14 اگست، پیر، صبح 8 بجے |
-| `NUM` | CARDINAL + ORDINAL + MONEY + PERCENT + QUANTITY | 35 طالب علم، پچاس روپے |
-| `MISC` | PRODUCT, EVENT, WORK_OF_ART, LAW, LANGUAGE, FOOD, DISEASE, NORP, COLOR | عید، اردو، ٹائیفائیڈ |
-| `O` | O | — |
+| Our tag | Meaning | ZUNERA source tags | Examples |
+|---|---|---|---|
+| `PER` | Person name (no titles attached) | PER | علامہ اقبال، سارہ، احمد رضا |
+| `LOC` | Geo-political / administrative location: country, province, division, district, city, town, village, region | LOC + GPE | پاکستان، سندھ، کراچی، ضلع ٹھٹھہ |
+| `PLACE` | Physical place / facility / generic place noun: building, campus, hospital, park, road, bridge, mountain, river, market | PLACE | سول اسپتال، اسکول کی عمارت، فیصل مسجد، کے ٹو، ایم اے جناح روڈ |
+| `JOBTITLE` | Job title / designation / role used as a title | JOBTITLE | **استاد، پروفیسر، پرنسپل، لیکچرار، ڈاکٹر، وزیرِ تعلیم** ← the teacher signal |
+| `ORG` | Named organization / institution / body / company / party / media | ORG | سندھ ٹیکسٹ بک بورڈ، جامعۂ کراچی، محکمۂ تعلیم، اقوام متحدہ |
+| `TIME` | Clock time, part of day, duration, month/year used as a time reference | TIME | صبح، شام، 8 بجے، دوپہر، ایک گھنٹہ، مارچ میں، 2024 میں |
+| `DAY` | Calendar-day expression: weekday name, date | DATE + DAY | پیر، جمعرات، 14 اگست، یکم جنوری |
+| `EVENT` | Named event / occasion / observance | EVENT | عید الاضحیٰ، یومِ آزادی، عالمی یومِ اساتذہ، اولمپکس |
+| `PHONE` | Phone number — **synthetic only** (§5b) | — | 0300-1234567، +92-321-9876543 |
+| `CNIC` | National ID number — **synthetic only** (§5b) | — | 42101-1234567-1 |
+| `O` | Everything else (incl. plain numbers, money, quantities, languages, works of art, colors) | CARDINAL, ORDINAL, MONEY, PERCENT, QUANTITY, PRODUCT, WORK_OF_ART, LAW, LANGUAGE, FOOD, DISEASE, NORP, COLOR, MISC | 35 طالب علم، پچاس روپے، اردو |
 
-JOBTITLE stays first-class (not folded into MISC) — it is what makes the corpus serve the teacher/education use case while remaining domain-neutral.
+Boundary/ambiguity rules (also encoded in the few-shot prompt and `docs/LABEL_GUIDELINES.md`):
+
+1. **Title vs. name:** role/honorific word → `JOBTITLE`; the name → `PER` (استاد احمد رضا → `استاد`=JOBTITLE, `احمد رضا`=PER).
+2. **LOC vs. PLACE:** administrative/geo-political unit → `LOC`; physical place, facility, or geographic feature → `PLACE`.
+3. **PLACE vs. ORG:** named institution acting as an entity/agent (employer, authority, organizer) → `ORG`; the same name used as a physical location ("سول اسپتال جانے کا راستہ") → `PLACE`.
+4. **DAY vs. EVENT:** the calendar date → `DAY`; the holiday/observance itself → `EVENT` ("14 اگست کو یومِ آزادی منایا جاتا ہے" → DAY + EVENT).
+5. **JOBTITLE is first-class** (not folded into PER/MISC) — it is what makes the corpus serve the teacher/education use case while remaining domain-neutral.
+6. Generic institution words with no name (اسکول، کالج، یونیورسٹی as common nouns) → `O`; only named/specific mentions are tagged.
+
+### 5b. Synthetic PHONE & CNIC injection
+
+Phone numbers and CNICs are **not scraped** — they are generated and injected into pool sentences before annotation, so every instance is guaranteed valid-format, non-personal, and exactly labeled.
+
+- **Generators** (`synth/inject.py`): Pakistani mobile/landline formats `03XX-XXXXXXX`, `+92-3XX-XXXXXXX`, `0XX-XXXXXXX`; CNIC `XXXXX-XXXXXXX-X` (5-7-1 digits, e.g. `42101-1234567-1`). Seeded RNG → reproducible; no real number is ever emitted (reserved/fictional ranges, documented in the generator).
+- **Injection:** a natural carrier clause is appended to a sampled subset of pool sentences, e.g. `…۔ مزید معلومات کے لیے 0301-2345678 پر رابطہ کریں۔` or `…۔ شناختی کارڈ نمبر 42101-1234567-1 درکار ہے۔` Default rate: **8% PHONE + 8% CNIC per sentence** (configurable per run). At the 5K floor that yields ≈400 of each; raise the rate to 15–20% per type (or extend to 10K sentences) to reach **≥ 1,000 instances of each**.
+- **Gold by construction:** injection returns exact character offsets; those spans are marked `synthetic: true` and forced into the gold annotation (voter output overlapping them is discarded). Voter detection of synthetic spans is logged separately as a robustness metric.
+- **Distribution note (state in any writeup):** synthetic entities are template-context, not natural web/textbook usage — report metrics for PHONE/CNIC separately from the 8 natural tags.
 
 ---
 
@@ -158,19 +178,24 @@ You review:
 ```
 Urdu-NER-Scraper/
 ├── PLAN.md                      ← this file
+├── docs/LABEL_GUIDELINES.md     ← tag definitions + ambiguity log (source of truth)
 ├── sources.sqlite               ← every document: url/board/class/subject/publisher/fetch date/status
 ├── scraper/                     ← web scrapers + board PDF fetchers
-├── textbooks/                   ← PDF text extraction + validation heuristics
+├── textbooks/                   ← PDF text extraction + validation heuristics + OCR
 ├── clean/                       ← normalization, filters, dedup, sentence pool
-├── annotate/                    ← LLM voters (Groq/Gemini/Mistral), batching, voting, BIO conversion
-├── review/                      ← Label Studio configs, review-log tooling, agreement metrics
+├── annotate/                    ← schema, prompts, LLM voters (Groq/Gemini), voting, BIO conversion
+├── synth/                       ← synthetic PHONE/CNIC generation + injection
+├── review/                      ← Label Studio config, review-log tooling, agreement metrics
 ├── data/
 │   ├── pdfs/                    ← cached board PDFs (gitignored)
+│   ├── ocr/                     ← per-page OCR cache + book.txt (gitignored)
 │   ├── pool/                    ← filtered sentence pool (jsonl + provenance ids)
-│   ├── batches/                 ← per-batch pre-annotation + review snapshots
+│   ├── annotations/             ← voter output per batch (pilot.jsonl, batch_NN.jsonl)
+│   ├── ls/                      ← Label Studio import files + exports (gitignored)
 │   └── education_v1/
 │       ├── train.bio            ← approved data (CoNLL BIO2)
 │       ├── eval.bio             ← held-out approved data
+│       ├── review_log.jsonl     ← every human correction
 │       ├── provenance.jsonl     ← sentence_id → source, board, class, url, validation status
 │       └── REPORT.md            ← counts, strata, agreement stats, correction rates
 ```
@@ -200,11 +225,13 @@ Urdu-NER-Scraper/
 
 | # | Question | Decision |
 |---|---|---|
-| 1 | Annotation LLMs | **Free APIs only** → Groq Llama-3.3-70B + Gemini 2.0 Flash + Mistral Small (3 diverse voters), batched 10–20 sentences/request |
+| 1 | Annotation LLMs | **Free APIs only** → Groq `openai/gpt-oss-120b` + Gemini flash chain + OpenRouter free tier (3 diverse voters), batched 10–20 sentences/request (verified live 2026-11-04) |
 | 2 | Review tool | **Label Studio** |
 | 3 | Corpus size | **Maximize** within free-tier throughput; pool 15–20K, approve as much as possible, floor 5K approved |
 | 4 | Grades | **All classes Kachi–XII**; sampling weighted toward Class 4–12 (grades = جماعت/classes, i.e., which class's textbook a sentence comes from) |
-| 5 | OCR | **Skipped for now** — copyable-text PDFs only; scanned books detected, recorded, excluded |
+| 5 | OCR | **Adopted** (superseded 2026-11-04) — all board PDFs are image-only; free-tier Gemini OCR validated, §9 below |
+| 6 | Tag schema | **10 labels + O** (§5): PER, LOC, PLACE, JOBTITLE, ORG, TIME, DAY, EVENT, PHONE, CNIC |
+| 7 | PHONE / CNIC | **Synthetic** — generated and injected before annotation, gold by construction (§5b); never scraped |
 
 **✅ Resolved (2026-11-04): free-tier Gemini OCR adopted.** User supplied a working AI Studio key. OCR quality **validated on a real STBB Urdu Reader IV page**: near-perfect Nastaliq transcription incl. diacritics and proper nouns, via `gemini-3.1-flash-lite`. Free tier ≈ 1,500 requests/day ≈ **7–10 books/day**. Pipeline: PDF → page images (pymupdf, 150 dpi) → Gemini transcribe → same S3–S5 validation/cleaning as native text. The "copyable-text only" constraint is superseded — textbooks are back in scope at $0.
 
