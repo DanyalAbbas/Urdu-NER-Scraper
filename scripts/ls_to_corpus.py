@@ -39,13 +39,13 @@ def char_spans_to_token_spans(text: str, spans: list[dict]) -> set[tuple[int, in
 def ls_results_to_spans(results: list[dict]) -> list[dict]:
     spans = []
     for r in results:
-        if r.get("type") != "labels":
+        v = r.get("value") or {}
+        start = v.get("start", r.get("start"))
+        end = v.get("end", r.get("end"))
+        labels = v.get("labels") or r.get("labels") or []
+        if start is None or not labels:
             continue
-        v = r.get("value", {})
-        labels = v.get("labels") or []
-        if not labels:
-            continue
-        spans.append({"start": v["start"], "end": v["end"], "tag": labels[0]})
+        spans.append({"start": start, "end": end, "tag": labels[0]})
     return spans
 
 
